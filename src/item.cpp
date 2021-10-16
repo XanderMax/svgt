@@ -7,7 +7,7 @@ using namespace svgt;
 struct Item::Impl
 {
     Item& self;
-    QString source;
+    QUrl source;
     QPointer<QQuickItem> item;
     Engine& engine;
     QMap<QString, QString> props;
@@ -87,12 +87,12 @@ void Item::setItem(QQuickItem* item)
     }
 }
 
-QString Item::source() const
+QUrl Item::source() const
 {
     return impl->source;
 }
 
-void Item::setSource(const QString& str)
+void Item::setSource(const QUrl& str)
 {
     if (impl->source == str) {
         return;
@@ -115,7 +115,7 @@ void Item::propertiesUpdated()
     }
     for (const auto& prop : impl->metaProps) {
         auto str = prop.read(impl->item).toString();
-        str.replace("#", "");
+        str.replace('#', "-");
         impl->props[prop.name()] = std::move(str);
     }
     

@@ -11,7 +11,7 @@ Item {
         property color leftEye: "red"
         
         anchors.fill: parent
-        template: "../../../qml-sample/vectorpaint.svgt"
+        template: "../qml-sample/vectorpaint.svg"
     }
 
     MouseArea {

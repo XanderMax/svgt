@@ -15,8 +15,8 @@ class Item : public QObject, public QQmlParserStatus
     
     Q_INTERFACES(QQmlParserStatus)
     Q_PROPERTY(QQuickItem* item READ item WRITE setItem NOTIFY itemChanged)
+    Q_PROPERTY(QUrl source WRITE setSource READ source NOTIFY sourceChanged)
     Q_PROPERTY(QString destination READ destination NOTIFY destinationChanged)
-    Q_PROPERTY(QString source WRITE setSource READ source NOTIFY sourceChanged)
     
 public:
 
@@ -29,8 +29,8 @@ public:
     QQuickItem* item() const;
     void setItem(QQuickItem*);
 
-    QString source() const;
-    void setSource(const QString&);
+    QUrl source() const;
+    void setSource(const QUrl&);
 
     QString destination() const;
 

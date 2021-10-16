@@ -2,23 +2,66 @@
 #include <private/qabstractfileengine_p.h>
 #include <QUrl>
 #include <QDebug>
+#include <QFile>
+#include <QByteArray>
 
 using namespace svgt;
 
-class Generator
+namespace detail
 {
 
-}; // class Generator
-
-class BlueprintDetail : public Blueprint
+class generator
 {
+    QMap<QString, QByteArray> precompiled;
 public:
-    BlueprintDetail(const QString& path)
-    {
+    generator() = default;
+    generator(const generator&) = delete;
+    generator(generator&&) = delete;
 
+    bool contains(const QString& path) const
+    {
+        auto data = precompiled[path];
+        qDebug() << Q_FUNC_INFO << data.size();
+        return precompiled.contains(path) && !precompiled[path].isEmpty();
     }
 
-    QString getFileName(const QMap<QString, QString>& props) const
+    const QByteArray& getData(const QString& path)
+    {
+        if (!contains(path)) {
+            qDebug() << Q_FUNC_INFO << "No data for" << path;
+        }
+        return precompiled[path];
+    }
+
+    void putData(const QString& path, const QByteArray& data)
+    {
+        if (data.isEmpty()) return;
+        qDebug() << Q_FUNC_INFO << path << data.size();
+        precompiled[path] = data;
+    }
+}; // class generator
+class blueprint : public ::Blueprint
+{
+    QByteArray data;
+    generator& gen;
+    QMap<QString, QByteArray> precompiled;
+    QByteArray compile(const QMap<QString, QString>&) const
+    {
+        return data;
+    }
+public:
+    blueprint(generator& gen, const QString& path)
+    : gen(gen)
+    {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            qDebug() << "failed to open file" << path;
+            std::terminate();
+        }
+        data = file.readAll();
+    }
+
+    static QString getFileName(const QMap<QString, QString>& props)
     {
         QString filename;
         filename.append("/");
@@ -31,65 +74,116 @@ public:
         return filename;
     }
 
-    QString construct(const QMap<QString, QString>& map) const override
+    QString construct(const QMap<QString, QString>& map) override
     {
-        return getFileName(map);
+        QString filename = getFileName(map);
+        qDebug() << Q_FUNC_INFO << filename;
+        if (!gen.contains(filename)) {
+            auto data = compile(map);
+            qDebug() << Q_FUNC_INFO << filename << data.size();
+            gen.putData(filename, data); 
+        }
+        return filename;
     }
-}; // class Blueprint
+}; // class blueprint
 
-// class FileEngine : public QAbstractFileEngine
-// {
-//     const QByteArray& d;
-//     qint64 pos;
-// public:
-//     FileEngine(generator& g, const QString& n) : g(g), d(g.data(n)), pos(0)
-//     {
-//         if (d.isEmpty()) {qCCritical() << "No svgt file or it is malformed" << n;}
-//     }
+} // namespace detail
 
-//     bool open(QIODevice::OpenMode) override {return !d.isEmpty();}
+class FileEngine : public QAbstractFileEngine
+{
+    const QByteArray& data;
+    qint64 pos = 0;
+public:
+    FileEngine(const QByteArray& data)
+    : QAbstractFileEngine()
+    , data(data)
+    {
+        if (data.isEmpty()) {
+            qDebug() << "something went wrong";
+            std::terminate();
+        }
+    }
 
-//     qint64 read(char* data, qint64 maxlen) override
-//     {
-//         if (d.isEmpty()) return 0;
-//         qint64 r = qMin(maxlen, d.size() - pos);
-//         memcpy(data, (d.data() + pos), r);
-//         return r;
-//     }
-//     bool seek(qint64 i) override
-//     {
-//         if (i >= 0 && i < d.size()) {pos = i; return true;}
-//         return false;
-//     }
-// }; // class FileEngine
+    bool open(QIODevice::OpenMode) override
+    {
+        return true;
+    }
 
+    qint64 read(char* storage, qint64 maxlen) override
+    {
+        if (data.isEmpty()) return 0;
+        qint64 r = qMin(maxlen, data.size() - pos);
+        memcpy(storage, data.data() + pos, r);
+        return r;
+    }
 
+    bool seek(qint64 i) override
+    {
+        if (i >= 0 && i < data.size()) {
+            pos = i;
+            return true;
+        }
+        return false;
+    }
+};
 
 class FileHandler : public QAbstractFileEngineHandler
 {
+    detail::generator& gen;
 public:
-    FileHandler()
+    FileHandler(detail::generator& gen)
     : QAbstractFileEngineHandler()
+    , gen(gen)
     {
         qDebug() << Q_FUNC_INFO;
     }
 
     QAbstractFileEngine* create(const QString& name) const
     {
-        if (name.endsWith(".svgt")) {
-            qDebug() << Q_FUNC_INFO << name;
+        if (!name.endsWith(".svgt")) {
+            return nullptr;
         }
-        //if (name.endsWith(".svgt")) return new detail::file_engine(g, name);
-        return nullptr;
+        qDebug() << Q_FUNC_INFO << name;
+
+        const auto& data = gen.getData(name);
+        
+        if (data.isEmpty()) {
+            qDebug() << Q_FUNC_INFO << name << "data is empty";
+            return nullptr;
+        }
+
+        return new FileEngine(data);
     }
 }; // FileHandler
 
 struct Engine::Impl
 {
+    detail::generator gen;
+    QMap<QString, std::shared_ptr<detail::blueprint>> bps;
     FileHandler fileHandler;
-    QSet<QString> emptySet;
-    QMap<QString, std::shared_ptr<Blueprint>> blueprints;
 
+    std::shared_ptr<detail::blueprint> addBlueprint(const QString& path)
+    {
+        qDebug() << Q_FUNC_INFO << path;
+        if (!bps.contains(path)) {
+            auto sp = std::make_shared<detail::blueprint>(gen, path);
+            bps[path] = sp;
+            return sp;
+        }
+        return bps[path];
+    }
+
+    std::shared_ptr<detail::blueprint> getBlueprint(const QString& path) const
+    {
+        return bps.value(path, nullptr);
+    }
+    
+    
+    Impl()
+    : fileHandler(gen)
+    {
+
+    }
 }; // Engine::Impl
 
 Engine::Engine()
@@ -109,9 +203,5 @@ std::weak_ptr<Blueprint> Engine::blueprint(const QUrl& url)
 {
     qDebug() << Q_FUNC_INFO << url.path();
     QString path = url.path();
-    if (!impl->blueprints.contains(path)) {
-        std::shared_ptr<Blueprint> ptr(new BlueprintDetail(path));
-        impl->blueprints.insert(path, ptr);
-    }
-    return impl->blueprints[path];
+    return impl->addBlueprint(path);
 }
