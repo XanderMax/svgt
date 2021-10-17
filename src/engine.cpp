@@ -1,5 +1,7 @@
 #include "engine.h"
 #include <private/qabstractfileengine_p.h>
+#include <tuple>
+#include <vector>
 #include <QUrl>
 #include <QDebug>
 #include <QFile>
@@ -40,14 +42,85 @@ public:
         precompiled[path] = data;
     }
 }; // class generator
+
 class blueprint : public ::Blueprint
 {
+    struct chunk
+    {
+        QByteArray data; QString name;
+        chunk(QByteArray data, QString name) : data(data), name(name) {}
+    };
+    std::vector<chunk> bpChunks;
     QByteArray data;
     generator& gen;
     QMap<QString, QByteArray> precompiled;
-    QByteArray compile(const QMap<QString, QString>&) const
+
+    QByteArray compile(const QMap<QString, QByteArray>& map) const
     {
+        int size = 0;
+        for (const auto& ch : bpChunks) {
+            if (ch.name.isEmpty()) {
+                size += ch.data.size();
+                continue;
+            }
+            auto it = map.find(ch.name);
+            if (it == map.end()) return QByteArray();
+            size += ch.data.size() + it->size();
+        }
+
+        QByteArray data(size, '\0');
+
+        int pos = 0;
+        for (const auto& ch : bpChunks) {
+            data.replace(pos, ch.data.size(), ch.data);
+            pos += ch.data.size();
+            if (ch.name.isEmpty()) continue;
+            auto it = map.find(ch.name);
+            if (it == map.end()) return QByteArray();
+            data.replace(pos, it->size(), it.value());
+            pos += it->size();
+        }
+
         return data;
+    }
+
+    void buildBp(QByteArray& data)
+    {
+        qDebug() << Q_FUNC_INFO << data.size();
+        bpChunks.clear();
+        if (data.isEmpty()) return;
+        if (data.size() <= 4) {
+            bpChunks.push_back(chunk{std::move(data), QString()});
+            return;
+        }
+
+// 0 1 2 4 5 6 7
+// { { h p } } x
+        int beg = 0, openBrace = -1;
+        for (int i = 0; i < data.size() - 1; ++i) {
+            qDebug() << Q_FUNC_INFO << data.size() << i;
+            if (beg >= data.size()) {
+                break;
+            }
+            if (data[i] == '{' && data[i + 1] == '{') {
+                openBrace = i;
+            }
+            if (data[i] == '}' && data[i + 1] == '}' && openBrace >= 0) {
+                QString property = data.mid(openBrace + 2, i - openBrace -2);
+                auto dataChunk = data.mid(beg, openBrace - beg);
+                bpChunks.emplace_back(std::move(dataChunk), std::move(property));
+                beg = i + 2;
+                openBrace = -1;
+            }
+        }
+
+        if (beg < data.size()) {
+            bpChunks.emplace_back(data.mid(beg, -1), QString());
+        }
+
+        for (const auto& ch : bpChunks) {
+            qDebug() << Q_FUNC_INFO << ch.data << " : " << ch.name;
+        }
     }
 public:
     blueprint(generator& gen, const QString& path)
@@ -59,9 +132,10 @@ public:
             std::terminate();
         }
         data = file.readAll();
+        buildBp(data);
     }
 
-    static QString getFileName(const QMap<QString, QString>& props)
+    static QString getFileName(const QMap<QString, QByteArray>& props)
     {
         QString filename;
         filename.append("/");
@@ -74,7 +148,7 @@ public:
         return filename;
     }
 
-    QString construct(const QMap<QString, QString>& map) override
+    QString construct(const QMap<QString, QByteArray>& map) override
     {
         QString filename = getFileName(map);
         qDebug() << Q_FUNC_INFO << filename;

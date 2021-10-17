@@ -12,7 +12,7 @@ namespace svgt
 struct Blueprint
 {
     virtual ~Blueprint() {}
-    virtual QString construct(const QMap<QString, QString>&) = 0;
+    virtual QString construct(const QMap<QString, QByteArray>&) = 0;
 }; // struct Blueprint
 
 class Engine

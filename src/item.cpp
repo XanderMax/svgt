@@ -10,7 +10,7 @@ struct Item::Impl
     QUrl source;
     QPointer<QQuickItem> item;
     Engine& engine;
-    QMap<QString, QString> props;
+    QMap<QString, QByteArray> props;
     QVector<QMetaProperty> metaProps;
     QMetaMethod updateSlot;
     std::weak_ptr<Blueprint> bp;
@@ -114,7 +114,7 @@ void Item::propertiesUpdated()
         return;
     }
     for (const auto& prop : impl->metaProps) {
-        auto str = prop.read(impl->item).toString();
+        auto str = prop.read(impl->item).toByteArray();
         str.replace('#', "-");
         impl->props[prop.name()] = std::move(str);
     }
