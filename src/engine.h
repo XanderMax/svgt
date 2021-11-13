@@ -10,11 +10,13 @@ class QDir; class QUrl;
 namespace svgt
 {
 
-struct Blueprint
+class Foreman
 {
-    virtual ~Blueprint() {}
-    virtual QString construct(const QMap<QString, QByteArray>&) = 0;
-}; // struct Blueprint
+public:
+    virtual ~Foreman() {}
+
+    virtual QString destination(const QObject*) = 0;
+};
 
 class Engine : public QObject
 {
@@ -24,7 +26,7 @@ class Engine : public QObject
 public:
     Engine(QObject* parent = nullptr);
     ~Engine();
-    QString getDestination(const QUrl&, const QVector<QMetaProperty>&, const QObject*);
+    std::shared_ptr<Foreman> foreman(const QUrl&, const QVector<QMetaProperty>&);
 }; // Engine
 
 } // namespace svgt

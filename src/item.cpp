@@ -24,11 +24,15 @@ struct Item::Impl
     QMetaMethod updateSlot;
     std::vector<Connection> connections;
     QString destination;
+    std::shared_ptr<Foreman> foreman;
     bool completed;
 
     Impl(Item&);
 
+    void setupObject(QObject* obj);
+    void setupEngine(Engine* engine);
     void setup();
+    
 }; // struct Item::Impl
 
 
@@ -41,10 +45,12 @@ Item::Impl::Impl(Item& self)
     updateSlot = self.metaObject()->method(slotIdx);
 }
 
-void Item::Impl::setup()
+void Item::Impl::setupObject(QObject* obj)
 {
-    qDebug() << Q_FUNC_INFO;
-    if (!completed || !object || !engine || !updateSlot.isValid()) {
+    Q_ASSERT(!object && obj);
+    object = obj;
+
+    if (!object) {
         return;
     }
 
@@ -60,6 +66,26 @@ void Item::Impl::setup()
         connections.emplace_back(std::move(connection));
         metaProps.push_back(std::move(prop));
     }
+
+    setup();
+}
+
+void Item::Impl::setupEngine(Engine* eng)
+{
+    Q_ASSERT(!engine && eng);
+    engine = eng;
+    setup();
+}
+
+void Item::Impl::setup()
+{
+    qDebug() << Q_FUNC_INFO;
+
+    if (!completed || !object || !engine || !updateSlot.isValid()) {
+        return;
+    }
+
+    foreman = engine->foreman(source, metaProps);
 
     self.propertiesUpdated();
 }
@@ -92,11 +118,8 @@ Engine* Item::engine() const
 
 void Item::setEngine(Engine* engine)
 {
-    if (impl->engine != engine) {
-        impl->engine = engine;
-        impl->setup();
-        emit engineChanged();
-    }
+    impl->setupEngine(engine);
+    emit engineChanged();
 }
 
 QObject* Item::object() const
@@ -106,11 +129,8 @@ QObject* Item::object() const
 
 void Item::setObject(QObject* object)
 {
-    if (impl->object != object) {
-        impl->object = object;
-        impl->setup();
-        emit objectChanged();
-    }
+    impl->setupObject(object);  
+    emit objectChanged();
 }
 
 QUrl Item::source() const
@@ -122,7 +142,7 @@ void Item::setSource(const QUrl& source)
 {
     if (impl->source != source) {
         impl->source = source;
-        propertiesUpdated();
+        impl->setup();
         emit sourceChanged();
     }
 }
@@ -142,14 +162,14 @@ void Item::propertiesUpdated()
         return;
     }
 
-    if (!impl->object || !impl->engine) {
+    if (!impl->foreman || !impl->object) {
         return;
     }
 
-    auto dest = impl->engine->getDestination(impl->source, impl->metaProps, impl->object);
-    
-    if (impl->destination != dest) {
-        impl->destination = dest;
+    auto destination = impl->foreman->destination(impl->object);
+
+    if (impl->destination != destination) {
+        impl->destination = destination;
         emit destinationChanged();
     }
 
