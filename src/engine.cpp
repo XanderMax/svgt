@@ -18,7 +18,7 @@ public:
     Generator() = default;
 
     std::shared_ptr<Blueprint> getBlueprint(const QString&);
-    const QByteArray& getData(const QString&) const;
+    const QByteArray& getData(const QString&);
     bool contains(const QString&) const;
     void addData(const QString&, QByteArray&&);
     int fileNameId(const QString&);
@@ -49,12 +49,99 @@ public:
     QString destination(const QObject*) override;
 }; // class ForemanImpl
 
+class FileEngine : public QAbstractFileEngine
+{
+    const QByteArray& data;
+    qint64 pos = 0;
+public:
+    FileEngine(const QByteArray&);
+    bool open(QIODevice::OpenMode) override;
+    qint64 read(char*, qint64) override;
+    bool seek(qint64) override;
+}; // class FileEngine
+
+class FileHandler : public QAbstractFileEngineHandler
+{
+    Generator& gen;
+public:
+    FileHandler(Generator& gen);
+    QAbstractFileEngine* create(const QString& name) const;
+}; // class FileHandler
+
 } // namespace
+
+FileEngine::FileEngine(const QByteArray& data)
+    : QAbstractFileEngine()
+    , data(data)
+{
+    if (data.isEmpty()) {
+        qDebug() << "something went wrong";
+        std::terminate();
+    }
+    qDebug() <<"DREDKO" << Q_FUNC_INFO << data;
+}
+
+bool FileEngine::open(QIODevice::OpenMode)
+{
+    return true;
+}
+
+qint64 FileEngine::read(char* storage, qint64 maxlen)
+{
+    if (data.isEmpty()) return 0;
+    qint64 r = qMin(maxlen, data.size() - pos);
+    memcpy(storage, data.data() + pos, r);
+    return r;
+}
+
+bool FileEngine::seek(qint64 i)
+{
+    if (i >= 0 && i < data.size()) {
+        pos = i;
+        return true;
+    }
+    return false;
+}
+
+FileHandler::FileHandler(Generator& gen)
+    : QAbstractFileEngineHandler()
+    , gen(gen)
+{
+    qDebug() << Q_FUNC_INFO;
+}
+
+QAbstractFileEngine* FileHandler::create(const QString& name) const
+{
+    if (!name.endsWith(".svgt")) {
+        return nullptr;
+    }
+    qDebug() << Q_FUNC_INFO << name;
+
+    const auto& data = gen.getData(name);
+
+    Q_ASSERT_X(!data.isEmpty(), name.toStdString().c_str(), "no data for file");
+        
+    if (data.isEmpty()) {
+        return nullptr;
+    }
+
+    return new FileEngine(data);
+}
 
 struct svgt::Engine::Impl
 {
-    Generator gen;
+    Generator generator;
+    FileHandler handler;
+
+    Impl();
 };
+
+svgt::Engine::Impl::Impl()
+    : generator()
+    , handler(generator)
+{
+
+}
 
 std::shared_ptr<Blueprint> Generator::getBlueprint(const QString& fileName)
 {
@@ -67,13 +154,13 @@ std::shared_ptr<Blueprint> Generator::getBlueprint(const QString& fileName)
     return ptr;
 }
 
-const QByteArray& Generator::getData(const QString& fileName) const
+const QByteArray& Generator::getData(const QString& fileName)
 {
     auto it = cache.constFind(fileName);
     if (it != cache.constEnd()) {
         return *it;
     }
-    return QByteArray();
+    return cache[fileName];
 }
 
 bool Generator::contains(const QString& fileName) const
@@ -146,7 +233,7 @@ void Blueprint::parse(const QString& fileName)
 
     int beg = 0, openBrace = -1;
     for (int i = 0; i < data.size() - 1; ++i) {
-        qDebug() << Q_FUNC_INFO << data.size() << i;
+        //qDebug() << Q_FUNC_INFO << data.size() << i;
         if (beg >= data.size()) {
             break;
         }
@@ -168,7 +255,7 @@ void Blueprint::parse(const QString& fileName)
         chunks.append(data.mid(beg, -1));
     }
 
-    qDebug() << Q_FUNC_INFO << chunks;
+    //qDebug() << Q_FUNC_INFO << chunks;
 }
 
 Blueprint::Blueprint(const QString& fileName, Generator& gen)
@@ -195,9 +282,9 @@ QVector<QMetaProperty> Blueprint::filterProps(const QMap<QString, QMetaProperty>
 
 QString Blueprint::getFilename(const QVector<QMetaProperty>& props, const QObject* obj)
 {
-    Q_ASSERT(!props.isEmpty() && obj);
+    Q_ASSERT(obj);
 
-    if (props.isEmpty() || obj) {
+    if (!obj) {
         return QString();
     }
 
@@ -219,6 +306,8 @@ QString Blueprint::getFilename(const QVector<QMetaProperty>& props, const QObjec
         gen.addData(filename, construct(props, obj));
     }
 
+    qDebug() << Q_FUNC_INFO << filename;
+
     return filename;
     
 }
@@ -230,9 +319,15 @@ ForemanImpl::ForemanImpl(const std::shared_ptr<::Blueprint>& blueprint, const QV
     Q_ASSERT(blueprint);
 }
 
-QString ForemanImpl::destination(const QObject*)
+QString ForemanImpl::destination(const QObject* obj)
 {
-    return QString();
+    auto sp = blueprint.lock();
+    Q_ASSERT(sp && sp);
+    if (!sp || !obj) {
+        return QString();
+    }
+
+    return sp->getFilename(props, obj);
 }
 
 svgt::Engine::Engine(QObject* parent)
@@ -249,8 +344,8 @@ std::shared_ptr<svgt::Foreman> svgt::Engine::foreman(const QString& url, const Q
         return nullptr;
     }
 
-    std::shared_ptr<::Blueprint> bp = impl->gen.getBlueprint(url);
+    std::shared_ptr<::Blueprint> bp = impl->generator.getBlueprint(url);
     auto vec = bp->filterProps(props);
 
-    return nullptr;
+    return std::make_shared<ForemanImpl>(bp, vec);
 }

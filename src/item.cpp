@@ -163,11 +163,15 @@ void Item::propertiesUpdated()
         return;
     }
 
+    qDebug() << Q_FUNC_INFO << "1";
+
     if (!impl->foreman || !impl->object) {
         return;
     }
 
     auto destination = impl->foreman->destination(impl->object);
+
+    qDebug() << Q_FUNC_INFO << "2";
 
     if (impl->destination != destination) {
         impl->destination = destination;
