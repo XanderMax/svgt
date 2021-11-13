@@ -1,64 +1,72 @@
 #include "item.h"
+
+#include <vector>
 #include <QPointer>
 #include "engine.h"
 
 using namespace svgt;
 
+class Connection
+{
+    QMetaObject::Connection c;
+public:
+    Connection(QMetaObject::Connection&& c) : c(std::move(c)) {}
+    ~Connection() {QObject::disconnect(c);}
+};
+
 struct Item::Impl
 {
     Item& self;
     QUrl source;
-    QPointer<QQuickItem> item;
-    Engine& engine;
-    QMap<QString, QByteArray> props;
+    QPointer<QObject> object;
+    QPointer<Engine> engine;
     QVector<QMetaProperty> metaProps;
     QMetaMethod updateSlot;
-    std::weak_ptr<Blueprint> bp;
+    std::vector<Connection> connections;
     QString destination;
+    bool completed;
 
     Impl(Item&);
 
-    bool setup(QQuickItem*);
+    void setup();
 }; // struct Item::Impl
 
 
 Item::Impl::Impl(Item& self)
     : self(self)
-    , engine(Engine::instance())
+    , completed(false)
 {
     int slotIdx = self.metaObject()->indexOfMethod("propertiesUpdated()");
-    if (slotIdx < 0 || slotIdx >= self.metaObject()->methodCount()) {
-        qDebug() << "Couldn't find 'propertiesUpdated' slot" << slotIdx;
-        std::terminate();
-    }
+    Q_ASSERT(slotIdx >= 0 && slotIdx < self.metaObject()->methodCount());
     updateSlot = self.metaObject()->method(slotIdx);
 }
 
-bool Item::Impl::setup(QQuickItem* item)
+void Item::Impl::setup()
 {
     qDebug() << Q_FUNC_INFO;
-    if (!item || item == this->item) return false;
+    if (!completed || !object || !engine || !updateSlot.isValid()) {
+        return;
+    }
 
-    this->item = item;
+    const QMetaObject* mo = object->metaObject();
 
-    const QMetaObject* mo = item->metaObject();
     metaProps.clear();
+    connections.clear();
+
     for(int i = mo->propertyOffset(); i < mo->propertyCount(); ++i) {
-        QMetaProperty prop = mo->property(i);
-        QMetaMethod notifySignal = prop.notifySignal();
-        notifySignal.methodIndex();
-        QObject::connect(item, notifySignal, &self, updateSlot);
+        auto prop = mo->property(i);
+        auto notifySignal = prop.notifySignal();
+        auto connection = QObject::connect(object, notifySignal, &self, updateSlot);
+        connections.emplace_back(std::move(connection));
         metaProps.push_back(std::move(prop));
     }
 
     self.propertiesUpdated();
-
-    return true;
 }
 
 Item::Item(QObject* parent)
-: QObject(parent)
-, impl(std::make_unique<Impl>(*this))
+    : QObject(parent)
+    , impl(std::make_unique<Impl>(*this))
 {
 
 }
@@ -73,17 +81,35 @@ void Item::classBegin()
 void Item::componentComplete()
 {
     qDebug() << Q_FUNC_INFO;
+    impl->completed = true;
+    impl->setup();
 }
 
-QQuickItem* Item::item() const
+Engine* Item::engine() const
 {
-    return impl->item;
+    return impl->engine;
 }
 
-void Item::setItem(QQuickItem* item)
+void Item::setEngine(Engine* engine)
 {
-    if (impl->setup(item)) {
-        emit itemChanged();
+    if (impl->engine != engine) {
+        impl->engine = engine;
+        impl->setup();
+        emit engineChanged();
+    }
+}
+
+QObject* Item::object() const
+{
+    return impl->object;
+}
+
+void Item::setObject(QObject* object)
+{
+    if (impl->object != object) {
+        impl->object = object;
+        impl->setup();
+        emit objectChanged();
     }
 }
 
@@ -92,14 +118,13 @@ QUrl Item::source() const
     return impl->source;
 }
 
-void Item::setSource(const QUrl& str)
+void Item::setSource(const QUrl& source)
 {
-    if (impl->source == str) {
-        return;
+    if (impl->source != source) {
+        impl->source = source;
+        propertiesUpdated();
+        emit sourceChanged();
     }
-    impl->source = str;
-    impl->bp = impl->engine.blueprint(str);
-    emit sourceChanged();
 }
 
 QString Item::destination() const
@@ -110,17 +135,23 @@ QString Item::destination() const
 void Item::propertiesUpdated()
 {
     qDebug() << Q_FUNC_INFO;
-    if (!impl->item) {
+
+    if (impl->source.isEmpty()) {
+        impl->destination.clear();
+        emit destinationChanged();
         return;
     }
-    for (const auto& prop : impl->metaProps) {
-        auto str = prop.read(impl->item).toByteArray();
-        str.replace('#', "-");
-        impl->props[prop.name()] = std::move(str);
+
+    if (!impl->object || !impl->engine) {
+        return;
     }
+
+    auto dest = impl->engine->getDestination(impl->source, impl->metaProps, impl->object);
     
-    if (auto sp = impl->bp.lock()) {
-        impl->destination = sp->construct(impl->props);
+    if (impl->destination != dest) {
+        impl->destination = dest;
+        emit destinationChanged();
     }
+
     qDebug() << impl->destination;
 }

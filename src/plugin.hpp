@@ -15,7 +15,11 @@ class Plugin : public QQmlExtensionPlugin
 public:
     void registerTypes(const char* uri) override
     {
-        qmlRegisterType<Item>(uri, 1, 0, "SVGTItem");
+        qmlRegisterSingletonType<Engine>(uri, 1, 0, "SvgtEngineInstance", [](auto*, auto*) {
+            QObject* engine = new Engine();
+            return engine;
+        });
+        qmlRegisterType<Item>(uri, 1, 0, "SvgtItemImpl");
     }
 }; //class plugin
 

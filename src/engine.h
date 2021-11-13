@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <QSet>
+#include <QObject>
 
 class QDir; class QUrl;
 
@@ -15,15 +16,15 @@ struct Blueprint
     virtual QString construct(const QMap<QString, QByteArray>&) = 0;
 }; // struct Blueprint
 
-class Engine
+class Engine : public QObject
 {
+    Q_OBJECT
     struct Impl;
     std::unique_ptr<Impl> impl;
-    Engine();
 public:
+    Engine(QObject* parent = nullptr);
     ~Engine();
-    static Engine& instance();
-    std::weak_ptr<Blueprint> blueprint(const QUrl&);
+    QString getDestination(const QUrl&, const QVector<QMetaProperty>&, const QObject*);
 }; // Engine
 
 } // namespace svgt

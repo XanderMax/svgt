@@ -60,11 +60,15 @@ class blueprint : public ::Blueprint
         int size = 0;
         for (const auto& ch : bpChunks) {
             if (ch.name.isEmpty()) {
+                qDebug() << Q_FUNC_INFO << "ch.name.isEmpty()_0";
                 size += ch.data.size();
                 continue;
             }
             auto it = map.find(ch.name);
-            if (it == map.end()) return QByteArray();
+            if (it == map.end()) {
+                qDebug() << Q_FUNC_INFO << "it == map.end()_0";
+                return QByteArray();
+            }
             size += ch.data.size() + it->size();
         }
 
@@ -74,9 +78,15 @@ class blueprint : public ::Blueprint
         for (const auto& ch : bpChunks) {
             data.replace(pos, ch.data.size(), ch.data);
             pos += ch.data.size();
-            if (ch.name.isEmpty()) continue;
+            if (ch.name.isEmpty()) {
+                qDebug() << Q_FUNC_INFO << "ch.name.isEmpty()_1";
+                continue;
+            }
             auto it = map.find(ch.name);
-            if (it == map.end()) return QByteArray();
+            if (it == map.end()) {
+                qDebug() << Q_FUNC_INFO << "it == map.end()_1";
+                return QByteArray();
+            }
             data.replace(pos, it->size(), it.value());
             pos += it->size();
         }
@@ -142,7 +152,9 @@ public:
         for (auto it = props.begin(), end = props.end(); it != end; ++it) {
             filename.append(it.key());
             filename.append("-");
-            filename.append(it.value());
+            auto tmp = it.value();
+            tmp.replace('#', '-');
+            filename.append(std::move(tmp));
         }
         filename.append(".svgt");
         return filename;
@@ -176,6 +188,7 @@ public:
             qDebug() << "something went wrong";
             std::terminate();
         }
+        qDebug() <<"DREDKO" << Q_FUNC_INFO << data;
     }
 
     bool open(QIODevice::OpenMode) override
@@ -260,22 +273,16 @@ struct Engine::Impl
     }
 }; // Engine::Impl
 
-Engine::Engine()
-: impl(std::make_unique<Impl>())
+Engine::Engine(QObject* parent)
+: QObject(parent)
+, impl(std::make_unique<Impl>())
 {
 }
 
 Engine::~Engine() = default;
 
-Engine& Engine::instance()
-{
-    static Engine engine;
-    return engine;
-}
 
-std::weak_ptr<Blueprint> Engine::blueprint(const QUrl& url)
+QString Engine::getDestination(const QUrl&, const QVector<QMetaProperty>&, const QObject*)
 {
-    qDebug() << Q_FUNC_INFO << url.path();
-    QString path = url.path();
-    return impl->addBlueprint(path);
+    return "";
 }

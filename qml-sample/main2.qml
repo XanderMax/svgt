@@ -5,7 +5,7 @@ Item {
     width: 1000
     height: 800
 
-    SVGTemplate {
+    SvgtItem {
         id: _sv
         property color rightEye: "red"
         property color leftEye: "red"
