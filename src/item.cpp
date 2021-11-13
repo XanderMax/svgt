@@ -8,10 +8,20 @@ using namespace svgt;
 
 class Connection
 {
-    QMetaObject::Connection c;
+    std::unique_ptr<QMetaObject::Connection> ptr;
 public:
-    Connection(QMetaObject::Connection&& c) : c(std::move(c)) {}
-    ~Connection() {QObject::disconnect(c);}
+    Connection(QMetaObject::Connection&& conn) 
+        : ptr(std::make_unique<QMetaObject::Connection>(std::move(conn))) 
+    {}
+    Connection(Connection&& conn)
+        : ptr(std::move(conn.ptr))
+    {}
+    ~Connection() 
+    {
+        if (ptr) {
+            QObject::disconnect(*ptr);
+        }
+    }
 };
 
 struct Item::Impl

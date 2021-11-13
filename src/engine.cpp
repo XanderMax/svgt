@@ -74,11 +74,12 @@ FileEngine::FileEngine(const QByteArray& data)
     : QAbstractFileEngine()
     , data(data)
 {
+    Q_ASSERT(!data.isEmpty());
     if (data.isEmpty()) {
-        qDebug() << "something went wrong";
-        std::terminate();
+        qCritical() << "something went wrong";
+        std::abort();
     }
-    qDebug() <<"DREDKO" << Q_FUNC_INFO << data;
+    //qDebug() <<"DREDKO" << Q_FUNC_INFO << data;
 }
 
 bool FileEngine::open(QIODevice::OpenMode)

@@ -7,11 +7,11 @@ Item {
 
     SvgtItem {
         id: _sv
-        property color rightEye: "red"
-        property color leftEye: "red"
+        property color rightEye: "white"
+        property color leftEye: "green"
         
         anchors.fill: parent
-        template: "../qml-sample/vectorpaint.svg"
+        template: "../qml-sample/vectorpaint1.svg"
     }
 
     MouseArea {
