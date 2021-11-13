@@ -17,10 +17,11 @@ public:
 struct Item::Impl
 {
     Item& self;
-    QUrl source;
+    QString source;
     QPointer<QObject> object;
     QPointer<Engine> engine;
-    QVector<QMetaProperty> metaProps;
+    QMap<QString, QMetaProperty> metaProps;
+    //QVector<QMetaProperty> metaProps;
     QMetaMethod updateSlot;
     std::vector<Connection> connections;
     QString destination;
@@ -64,7 +65,7 @@ void Item::Impl::setupObject(QObject* obj)
         auto notifySignal = prop.notifySignal();
         auto connection = QObject::connect(object, notifySignal, &self, updateSlot);
         connections.emplace_back(std::move(connection));
-        metaProps.push_back(std::move(prop));
+        metaProps.insert(prop.name(), std::move(prop));
     }
 
     setup();
@@ -133,12 +134,12 @@ void Item::setObject(QObject* object)
     emit objectChanged();
 }
 
-QUrl Item::source() const
+QString Item::source() const
 {
     return impl->source;
 }
 
-void Item::setSource(const QUrl& source)
+void Item::setSource(const QString& source)
 {
     if (impl->source != source) {
         impl->source = source;

@@ -17,7 +17,7 @@ class Item : public QObject, public QQmlParserStatus
     Q_INTERFACES(QQmlParserStatus)
     Q_PROPERTY(Engine* engine READ engine WRITE setEngine NOTIFY engineChanged)
     Q_PROPERTY(QObject* object READ object WRITE setObject NOTIFY objectChanged)
-    Q_PROPERTY(QUrl source WRITE setSource READ source NOTIFY sourceChanged)
+    Q_PROPERTY(QString source WRITE setSource READ source NOTIFY sourceChanged)
     Q_PROPERTY(QString destination READ destination NOTIFY destinationChanged)
     
 public:
@@ -34,8 +34,8 @@ public:
     QObject* object() const;
     void setObject(QObject*);
 
-    QUrl source() const;
-    void setSource(const QUrl&);
+    QString source() const;
+    void setSource(const QString&);
 
     QString destination() const;
 

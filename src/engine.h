@@ -26,7 +26,7 @@ class Engine : public QObject
 public:
     Engine(QObject* parent = nullptr);
     ~Engine();
-    std::shared_ptr<Foreman> foreman(const QUrl&, const QVector<QMetaProperty>&);
+    std::shared_ptr<Foreman> foreman(const QString&, const QMap<QString, QMetaProperty>&);
 }; // Engine
 
 } // namespace svgt
