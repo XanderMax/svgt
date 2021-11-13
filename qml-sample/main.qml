@@ -15,10 +15,10 @@ Item {
     }
 
     MouseArea {
+        property bool flag: true
         anchors.fill: parent
         onClicked: {
-            console.log("sdfsdfsdfsdf")
-            _sv.rightEye = "blue";
+            _sv.rightEye = flag ? "red" : "blue"
         }
     }
 }

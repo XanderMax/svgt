@@ -18,7 +18,7 @@ public:
     Generator() = default;
 
     std::shared_ptr<Blueprint> getBlueprint(const QString&);
-    const QByteArray& getData(const QString&);
+    QByteArray& getData(const QString&);
     bool contains(const QString&) const;
     void addData(const QString&, QByteArray&&);
     int fileNameId(const QString&);
@@ -79,7 +79,6 @@ FileEngine::FileEngine(const QByteArray& data)
         qCritical() << "something went wrong";
         std::abort();
     }
-    //qDebug() <<"DREDKO" << Q_FUNC_INFO << data;
 }
 
 bool FileEngine::open(QIODevice::OpenMode)
@@ -116,7 +115,7 @@ QAbstractFileEngine* FileHandler::create(const QString& name) const
     if (!name.endsWith(".svgt")) {
         return nullptr;
     }
-    qDebug() << Q_FUNC_INFO << name;
+    qDebug() << Q_FUNC_INFO << name << (void*)this;
 
     const auto& data = gen.getData(name);
 
@@ -155,10 +154,11 @@ std::shared_ptr<Blueprint> Generator::getBlueprint(const QString& fileName)
     return ptr;
 }
 
-const QByteArray& Generator::getData(const QString& fileName)
+QByteArray& Generator::getData(const QString& fileName)
 {
-    auto it = cache.constFind(fileName);
-    if (it != cache.constEnd()) {
+    auto it = cache.find(fileName);
+    if (it != cache.end()) {
+        qDebug() << Q_FUNC_INFO << "takin from cache" << fileName;
         return *it;
     }
     return cache[fileName];
@@ -234,7 +234,6 @@ void Blueprint::parse(const QString& fileName)
 
     int beg = 0, openBrace = -1;
     for (int i = 0; i < data.size() - 1; ++i) {
-        //qDebug() << Q_FUNC_INFO << data.size() << i;
         if (beg >= data.size()) {
             break;
         }
@@ -255,8 +254,6 @@ void Blueprint::parse(const QString& fileName)
     if (beg < data.size()) {
         chunks.append(data.mid(beg, -1));
     }
-
-    //qDebug() << Q_FUNC_INFO << chunks;
 }
 
 Blueprint::Blueprint(const QString& fileName, Generator& gen)
@@ -302,9 +299,9 @@ QString Blueprint::getFilename(const QVector<QMetaProperty>& props, const QObjec
 
     filename.append(".svgt");
 
-    const QByteArray& data = gen.getData(filename);
+    QByteArray& data = gen.getData(filename);
     if (data.isEmpty()) {
-        gen.addData(filename, construct(props, obj));
+        data = construct(props, obj);
     }
 
     qDebug() << Q_FUNC_INFO << filename;
