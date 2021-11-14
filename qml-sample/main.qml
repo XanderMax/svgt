@@ -5,20 +5,21 @@ Item {
     width: 1000
     height: 800
 
-    SVGTemplate {
+    SvgtImage {
         id: _sv
-        property color rightEye: "red"
-        property color leftEye: "red"
+        property color rightEye: "white"
+        property color leftEye: "green"
         
         anchors.fill: parent
-        template: "../qml-sample/vectorpaint.svg"
+        template: "../qml-sample/vectorpaint1.svg"
     }
 
     MouseArea {
+        property bool flag: true
         anchors.fill: parent
         onClicked: {
-            console.log("sdfsdfsdfsdf")
-            _sv.rightEye = "blue";
+            _sv.rightEye = flag ? "red" : "blue"
+            flag ^= true
         }
     }
 }

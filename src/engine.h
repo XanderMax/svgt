@@ -2,30 +2,28 @@
 #define __ODIEOIDNEODINEOIDNEOIDNEOINDOEINDN__
 
 #include <memory>
-#include <QSet>
-
-class QDir; class QUrl;
+#include <QObject>
 
 namespace svgt
 {
-
-struct Blueprint
+class Engine : public QObject
 {
-    virtual ~Blueprint() {}
-    virtual QString construct(const QMap<QString, QByteArray>&) = 0;
-}; // struct Blueprint
-
-class Engine
-{
+    Q_OBJECT
     struct Impl;
     std::unique_ptr<Impl> impl;
-    Engine();
 public:
+    struct FileId {virtual ~FileId() {}};
+    using FileIdPtr = std::shared_ptr<FileId>;
+    
+    Engine(QObject* parent = nullptr);
     ~Engine();
-    static Engine& instance();
-    std::weak_ptr<Blueprint> blueprint(const QUrl&);
-}; // Engine
 
+    FileIdPtr getFileId(const QString&);
+
+    QVector<QString> getRequiredProperties(const FileIdPtr&);
+
+    QString getDestination(const FileIdPtr&, const QVector<QMetaProperty>&, const QObject*);
+}; // Engine
 } // namespace svgt
 
 #endif // __ODIEOIDNEODINEOIDNEOIDNEOINDOEINDN__

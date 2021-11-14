@@ -1,104 +1,158 @@
 #include "item.h"
+
+#include <vector>
 #include <QPointer>
 #include "engine.h"
 
 using namespace svgt;
 
+class Connection
+{
+    std::unique_ptr<QMetaObject::Connection> ptr;
+public:
+    Connection(QMetaObject::Connection&& conn) 
+        : ptr(std::make_unique<QMetaObject::Connection>(std::move(conn))) 
+    {}
+    Connection(Connection&& conn)
+        : ptr(std::move(conn.ptr))
+    {}
+    ~Connection() 
+    {
+        if (ptr) {
+            QObject::disconnect(*ptr);
+        }
+    }
+};
+
 struct Item::Impl
 {
     Item& self;
-    QUrl source;
-    QPointer<QQuickItem> item;
-    Engine& engine;
-    QMap<QString, QByteArray> props;
-    QVector<QMetaProperty> metaProps;
-    QMetaMethod updateSlot;
-    std::weak_ptr<Blueprint> bp;
+    QString source;
     QString destination;
-
+    QPointer<Engine> engine;
+    QPointer<QObject> object;
+    Engine::FileIdPtr fileId;
+    QMetaMethod updateSlot;
+    QVector<QMetaProperty> metaProps;
+    std::vector<Connection> connections;
+    
     Impl(Item&);
 
-    bool setup(QQuickItem*);
+    void setup();
 }; // struct Item::Impl
 
 
 Item::Impl::Impl(Item& self)
     : self(self)
-    , engine(Engine::instance())
 {
     int slotIdx = self.metaObject()->indexOfMethod("propertiesUpdated()");
-    if (slotIdx < 0 || slotIdx >= self.metaObject()->methodCount()) {
-        qDebug() << "Couldn't find 'propertiesUpdated' slot" << slotIdx;
-        std::terminate();
-    }
+    Q_ASSERT(slotIdx >= 0 && slotIdx < self.metaObject()->methodCount());
     updateSlot = self.metaObject()->method(slotIdx);
+    Q_ASSERT(updateSlot.isValid());
 }
 
-bool Item::Impl::setup(QQuickItem* item)
+void Item::Impl::setup()
 {
     qDebug() << Q_FUNC_INFO;
-    if (!item || item == this->item) return false;
 
-    this->item = item;
-
-    const QMetaObject* mo = item->metaObject();
-    metaProps.clear();
-    for(int i = mo->propertyOffset(); i < mo->propertyCount(); ++i) {
-        QMetaProperty prop = mo->property(i);
-        QMetaMethod notifySignal = prop.notifySignal();
-        notifySignal.methodIndex();
-        QObject::connect(item, notifySignal, &self, updateSlot);
-        metaProps.push_back(std::move(prop));
+    if (!object || !engine) {
+        return;
     }
 
-    self.propertiesUpdated();
+    connections.clear();
+    metaProps.clear();
 
-    return true;
+    fileId = engine->getFileId(source);
+
+    if (!fileId) {
+        self.propertiesUpdated();
+        return;
+    }
+
+    auto requiredProps = engine->getRequiredProperties(fileId);
+
+    const QMetaObject* mo = object->metaObject();
+
+    QVector<QMetaProperty> props;
+    std::vector<Connection> conns;
+    for (const auto& name : qAsConst(requiredProps)) {
+        int pIdx = mo->indexOfProperty(qPrintable(name));
+
+        if (pIdx <= 0) {
+            qCritical() << "No property in object:" << name << "source:" << source;
+            continue;
+        }
+       
+        auto metaProperty = mo->property(pIdx);
+        auto notifySignal = metaProperty.notifySignal();
+
+        if (notifySignal.isValid()) {
+            auto connection = QObject::connect(object, notifySignal, &self, updateSlot, Qt::UniqueConnection);
+            if (connection) {
+                conns.emplace_back(std::move(connection));
+            }
+        }
+
+        props.append(metaProperty);
+    }
+
+    metaProps = std::move(props);
+    connections = std::move(conns);
+
+    self.propertiesUpdated();
 }
 
 Item::Item(QObject* parent)
-: QObject(parent)
-, impl(std::make_unique<Impl>(*this))
+    : QObject(parent)
+    , impl(std::make_unique<Impl>(*this))
 {
-
 }
 
 Item::~Item() {}
 
-void Item::classBegin()
+Engine* Item::engine() const
 {
-    qDebug() << Q_FUNC_INFO;
+    return impl->engine;
 }
 
-void Item::componentComplete()
+void Item::setEngine(Engine* engine)
 {
-    qDebug() << Q_FUNC_INFO;
-}
-
-QQuickItem* Item::item() const
-{
-    return impl->item;
-}
-
-void Item::setItem(QQuickItem* item)
-{
-    if (impl->setup(item)) {
-        emit itemChanged();
+    Q_ASSERT(!impl->engine && engine);
+    if (impl->engine == engine) {
+        return;
     }
+    impl->engine = engine;
+    impl->setup();
+    emit engineChanged();
 }
 
-QUrl Item::source() const
+QObject* Item::object() const
+{
+    return impl->object;
+}
+
+void Item::setObject(QObject* object)
+{
+    if (impl->object == object) {
+        return;
+    } 
+    impl->object = object;
+    impl->setup();
+    emit objectChanged();
+}
+
+QString Item::source() const
 {
     return impl->source;
 }
 
-void Item::setSource(const QUrl& str)
+void Item::setSource(const QString& source)
 {
-    if (impl->source == str) {
+    if (impl->source == source) {
         return;
     }
-    impl->source = str;
-    impl->bp = impl->engine.blueprint(str);
+    impl->source = source;
+    impl->setup();
     emit sourceChanged();
 }
 
@@ -109,18 +163,25 @@ QString Item::destination() const
 
 void Item::propertiesUpdated()
 {
-    qDebug() << Q_FUNC_INFO;
-    if (!impl->item) {
+    if (!impl->fileId || impl->source.isEmpty()) {
+        if (!impl->destination.isEmpty()) {
+            impl->destination.clear();
+            emit destinationChanged();
+        }
         return;
     }
-    for (const auto& prop : impl->metaProps) {
-        auto str = prop.read(impl->item).toByteArray();
-        str.replace('#', "-");
-        impl->props[prop.name()] = std::move(str);
+
+    Q_ASSERT_X(impl->object, qPrintable(impl->source), "object is null");
+    Q_ASSERT_X(impl->engine, qPrintable(impl->source), "engine is null");
+
+    if (!impl->engine || !impl->object) {
+        return;
     }
-    
-    if (auto sp = impl->bp.lock()) {
-        impl->destination = sp->construct(impl->props);
+
+    auto destination = impl->engine->getDestination(impl->fileId, impl->metaProps, impl->object);
+
+    if (impl->destination != destination) {
+        impl->destination = destination;
+        emit destinationChanged();
     }
-    qDebug() << impl->destination;
 }
