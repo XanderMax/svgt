@@ -4,50 +4,36 @@
 #include <QUrl>
 #include <QMetaProperty>
 #include <QDebug>
+#include <memory>
 
 namespace
 {
+using Id = QString;
+class Blueprint
+{
+    QVector<QByteArray> chunks;
+    QVector<QString> properties;
+    void parse(const QString&);
+public:
+    Blueprint(const QString&);
 
-class Blueprint;
+    const QVector<QString>& requiredProps() const;
+    QByteArray construct(const QVector<QMetaProperty>&, const QObject*) const;
+}; // class Blueprint
+
 class Generator
 {
-    QMap<QString, std::shared_ptr<Blueprint>> blueprints;
+    QMap<Id, Blueprint> blueprints;
     QMap<QString, QByteArray> cache;
-    QMap<QString, int> fileNames2Id;
+    QMap<QString, Id> fileNames2Id;
 public:
     Generator() = default;
 
-    std::shared_ptr<Blueprint> getBlueprint(const QString&);
-    QByteArray& getData(const QString&);
-    bool contains(const QString&) const;
-    void addData(const QString&, QByteArray&&);
-    int fileNameId(const QString&);
+    const QByteArray& getData(const QString&);
+    Id fileNameId(const QString&);
+    QVector<QString> requiredProps(const Id&);
+    QString getFilename(const Id&, const QVector<QMetaProperty>&, const QObject*);
 }; // class Generator
-
-class Blueprint
-{
-    Generator& gen;
-    QString fileId;
-    QVector<QByteArray> chunks;
-    QVector<QString> properties;
-
-    void parse(const QString&);
-    QByteArray construct(const QVector<QMetaProperty>&, const QObject*);
-public:
-    Blueprint(const QString&, Generator& gen);
-
-    QVector<QMetaProperty> filterProps(const QMap<QString, QMetaProperty>&) const;
-    QString getFilename(const QVector<QMetaProperty>&, const QObject*);
-}; // class Blueprint
-
-class ForemanImpl : public svgt::Foreman
-{
-    QVector<QMetaProperty> props;
-    std::weak_ptr<Blueprint> blueprint;
-public:
-    ForemanImpl(const std::shared_ptr<Blueprint>&, const QVector<QMetaProperty>&);
-    QString destination(const QObject*) override;
-}; // class ForemanImpl
 
 class FileEngine : public QAbstractFileEngine
 {
@@ -68,6 +54,14 @@ public:
     QAbstractFileEngine* create(const QString& name) const;
 }; // class FileHandler
 
+class FileIdImpl : public svgt::Engine::FileId
+{
+    QString idStr;
+public:
+    FileIdImpl(const QString&);
+    const QString& id() const;
+};
+
 } // namespace
 
 FileEngine::FileEngine(const QByteArray& data)
@@ -80,6 +74,14 @@ FileEngine::FileEngine(const QByteArray& data)
         std::abort();
     }
 }
+
+struct svgt::Engine::Impl
+{
+    Generator generator;
+    FileHandler handler;
+
+    Impl();
+};
 
 bool FileEngine::open(QIODevice::OpenMode)
 {
@@ -115,11 +117,10 @@ QAbstractFileEngine* FileHandler::create(const QString& name) const
     if (!name.endsWith(".svgt")) {
         return nullptr;
     }
-    qDebug() << Q_FUNC_INFO << name << (void*)this;
 
     const auto& data = gen.getData(name);
 
-    Q_ASSERT_X(!data.isEmpty(), name.toStdString().c_str(), "no data for file");
+    Q_ASSERT_X(!data.isEmpty(), qPrintable(name), "no data for file");
         
     if (data.isEmpty()) {
         return nullptr;
@@ -128,64 +129,63 @@ QAbstractFileEngine* FileHandler::create(const QString& name) const
     return new FileEngine(data);
 }
 
-struct svgt::Engine::Impl
+FileIdImpl::FileIdImpl(const QString& idStr)
+    : idStr(idStr)
 {
-    Generator generator;
-    FileHandler handler;
+    Q_ASSERT(!idStr.isEmpty());
+}
 
-    Impl();
-};
+const QString& FileIdImpl::id() const
+{
+    return idStr;
+}
 
 svgt::Engine::Impl::Impl()
     : generator()
     , handler(generator)
 {
-
 }
 
-std::shared_ptr<Blueprint> Generator::getBlueprint(const QString& fileName)
-{
-    auto it = blueprints.constFind(fileName);
-    if (it != blueprints.constEnd()) {
-        return *it;
-    }
-    auto ptr = std::make_shared<Blueprint>(fileName, *this);
-    blueprints.insert(fileName, ptr);
-    return ptr;
-}
-
-QByteArray& Generator::getData(const QString& fileName)
+const QByteArray& Generator::getData(const QString& fileName)
 {
     auto it = cache.find(fileName);
     if (it != cache.end()) {
-        qDebug() << Q_FUNC_INFO << "takin from cache" << fileName;
         return *it;
     }
     return cache[fileName];
 }
-
-bool Generator::contains(const QString& fileName) const
+QVector<QString> Generator::requiredProps(const Id& id)
 {
-    return cache.contains(fileName);
+    auto it = blueprints.constFind(id);
+
+    Q_ASSERT_X(it != blueprints.constEnd(), qPrintable(id), "no such id");
+
+    if (it == blueprints.constEnd()) {
+        return QVector<QString>();
+    }
+
+    return it->requiredProps();
 }
 
-void Generator::addData(const QString& fileName, QByteArray&& data)
-{
-    cache[fileName] = std::move(data);
-}
-
-int Generator::fileNameId(const QString& fileName)
+QString Generator::fileNameId(const QString& fileName)
 {
     auto it = fileNames2Id.constFind(fileName);
     if (it != fileNames2Id.constEnd()) {
         return *it;
     }
-    auto id = fileNames2Id.size();
+    auto id = QString::number(fileNames2Id.size(), 16);
     fileNames2Id.insert(fileName, id);
+
+    auto blueprintId = blueprints.constFind(id);
+
+    if (blueprintId == blueprints.constEnd()) {
+        blueprints.insert(id, Blueprint(fileName));
+    }
+
     return id;
 }
 
-QByteArray Blueprint::construct(const QVector<QMetaProperty>& props, const QObject* obj)
+QByteArray Blueprint::construct(const QVector<QMetaProperty>& props, const QObject* obj) const
 {
     QByteArray data;
 
@@ -212,10 +212,9 @@ void Blueprint::parse(const QString& fileName)
 
     file.open(QIODevice::ReadOnly);
 
-    Q_ASSERT_X(file.isOpen(), fileName.toStdString().c_str(), "failed to open file for parsing");
+    Q_ASSERT_X(file.isOpen(), qPrintable(fileName), "failed to open file for parsing");
 
     if (!file.isOpen()) {
-        qDebug() << "failed to open file" << fileName;
         return;
     }
     
@@ -256,39 +255,38 @@ void Blueprint::parse(const QString& fileName)
     }
 }
 
-Blueprint::Blueprint(const QString& fileName, Generator& gen)
-    : gen(gen)
+Blueprint::Blueprint(const QString& fileName)
 {
-    fileId = QString::number(gen.fileNameId(fileName), 16);
-    parse(fileName);
-}
-
-QVector<QMetaProperty> Blueprint::filterProps(const QMap<QString, QMetaProperty>& props) const
-{
-    QVector<QMetaProperty> metaProps;
-
-    for(const auto& name : properties) {
-        auto it = props.constFind(name);
-        if (it == props.constEnd()) {
-            return QVector<QMetaProperty>();
-        }
-        metaProps.append(*it);
+    Q_ASSERT(!fileName.isEmpty());
+    if (!fileName.isEmpty()) {
+        parse(fileName);
     }
-
-    return metaProps;
 }
 
-QString Blueprint::getFilename(const QVector<QMetaProperty>& props, const QObject* obj)
+const QVector<QString>& Blueprint::requiredProps() const
+{
+    return properties;
+}
+
+QString Generator::getFilename(const Id& id, const QVector<QMetaProperty>& props, const QObject* obj)
 {
     Q_ASSERT(obj);
 
-    if (!obj) {
+    if (!obj || id.isEmpty()) {
         return QString();
     }
 
-    QString filename;
+    auto blueprintIt = blueprints.constFind(id);
 
-    filename.append('/').append(fileId);
+    Q_ASSERT_X(blueprintIt != blueprints.constEnd(), qPrintable(id), "no such id");
+
+    if (blueprintIt == blueprints.constEnd()) {
+        return QString();
+    }
+
+    QString filename(id);
+
+    filename.prepend('/');
     
     for (auto it = props.constBegin(), end = props.constEnd(); it != end; ++it) {
         QString value = it->read(obj).toString();
@@ -299,33 +297,12 @@ QString Blueprint::getFilename(const QVector<QMetaProperty>& props, const QObjec
 
     filename.append(".svgt");
 
-    QByteArray& data = gen.getData(filename);
-    if (data.isEmpty()) {
-        data = construct(props, obj);
+    auto dataIt = cache.constFind(filename);
+    if (dataIt == cache.constEnd()) {
+        cache[filename] = blueprintIt->construct(props, obj);
     }
-
-    qDebug() << Q_FUNC_INFO << filename;
 
     return filename;
-    
-}
-
-ForemanImpl::ForemanImpl(const std::shared_ptr<::Blueprint>& blueprint, const QVector<QMetaProperty>& props)
-    : blueprint(blueprint)
-    , props(props)
-{
-    Q_ASSERT(blueprint);
-}
-
-QString ForemanImpl::destination(const QObject* obj)
-{
-    auto sp = blueprint.lock();
-    Q_ASSERT(sp && sp);
-    if (!sp || !obj) {
-        return QString();
-    }
-
-    return sp->getFilename(props, obj);
 }
 
 svgt::Engine::Engine(QObject* parent)
@@ -336,14 +313,42 @@ svgt::Engine::Engine(QObject* parent)
 
 svgt::Engine::~Engine() = default;
 
-std::shared_ptr<svgt::Foreman> svgt::Engine::foreman(const QString& url, const QMap<QString, QMetaProperty>& props)
+svgt::Engine::FileIdPtr svgt::Engine::getFileId(const QString& fileName)
 {
-    if (url.isEmpty()) {
+    
+    if (fileName.isEmpty()) {
         return nullptr;
     }
 
-    std::shared_ptr<::Blueprint> bp = impl->generator.getBlueprint(url);
-    auto vec = bp->filterProps(props);
+    auto id = impl->generator.fileNameId(fileName);
 
-    return std::make_shared<ForemanImpl>(bp, vec);
+    Q_ASSERT_X(!id.isEmpty(), qPrintable(fileName), "failed to get file id");
+
+    if (id.isEmpty()) {
+        return nullptr;
+    }
+
+    qDebug() << fileName << "->" << id;
+
+    return std::make_shared<FileIdImpl>(id);
+}
+
+QVector<QString> svgt::Engine::getRequiredProperties(const svgt::Engine::FileIdPtr& id)
+{
+    auto fileId = std::static_pointer_cast<FileIdImpl>(id);
+    if (!fileId) {
+        return QVector<QString>();
+    }
+
+    return impl->generator.requiredProps(fileId->id());
+}
+
+QString svgt::Engine::getDestination(const svgt::Engine::FileIdPtr& id, const QVector<QMetaProperty>& metaProps, const QObject* obj)
+{
+    auto fileId = std::static_pointer_cast<FileIdImpl>(id);
+    if (!fileId || !obj) {
+        return QString();
+    }
+
+    return impl->generator.getFilename(fileId->id(), metaProps, obj);
 }

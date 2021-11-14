@@ -10,11 +10,10 @@
 namespace svgt
 {
 
-class Item : public QObject, public QQmlParserStatus
+class Item : public QObject
 {
     Q_OBJECT
-    
-    Q_INTERFACES(QQmlParserStatus)
+
     Q_PROPERTY(Engine* engine READ engine WRITE setEngine NOTIFY engineChanged)
     Q_PROPERTY(QObject* object READ object WRITE setObject NOTIFY objectChanged)
     Q_PROPERTY(QString source WRITE setSource READ source NOTIFY sourceChanged)
@@ -24,9 +23,6 @@ public:
 
     Item(QObject* parent = nullptr);
     ~Item();
-
-    void classBegin() override;
-    void componentComplete() override;
 
     Engine* engine() const;
     void setEngine(Engine*);
@@ -52,7 +48,7 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl;
 
-}; // class item
+}; // class Item
 
 } // namespace svgt
 

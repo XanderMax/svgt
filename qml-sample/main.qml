@@ -19,6 +19,7 @@ Item {
         anchors.fill: parent
         onClicked: {
             _sv.rightEye = flag ? "red" : "blue"
+            flag ^= true
         }
     }
 }
