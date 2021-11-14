@@ -31,14 +31,14 @@ struct Item::Impl
     QString destination;
     QPointer<Engine> engine;
     QPointer<QObject> object;
-    Engine::FileIdPtr fileId;
+    Engine::FileIdWPtr fileId;
     QMetaMethod updateSlot;
     QVector<QMetaProperty> metaProps;
     std::vector<Connection> connections;
     
     Impl(Item&);
 
-    void setup();
+    bool setup();
 }; // struct Item::Impl
 
 
@@ -51,25 +51,24 @@ Item::Impl::Impl(Item& self)
     Q_ASSERT(updateSlot.isValid());
 }
 
-void Item::Impl::setup()
+bool Item::Impl::setup()
 {
     qDebug() << Q_FUNC_INFO;
 
     if (!object || !engine) {
-        return;
+        return false;
     }
 
     connections.clear();
     metaProps.clear();
 
-    fileId = engine->getFileId(source);
+    auto ptr = engine->getFileId(source);
 
-    if (!fileId) {
-        self.propertiesUpdated();
-        return;
+    if (!ptr) {
+        return false;
     }
 
-    auto requiredProps = engine->getRequiredProperties(fileId);
+    auto requiredProps = engine->getRequiredProperties(ptr);
 
     const QMetaObject* mo = object->metaObject();
 
@@ -98,8 +97,9 @@ void Item::Impl::setup()
 
     metaProps = std::move(props);
     connections = std::move(conns);
+    fileId = ptr;
 
-    self.propertiesUpdated();
+    return true;
 }
 
 Item::Item(QObject* parent)
@@ -122,7 +122,8 @@ void Item::setEngine(Engine* engine)
         return;
     }
     impl->engine = engine;
-    impl->setup();
+    impl->fileId.reset();
+    propertiesUpdated();
     emit engineChanged();
 }
 
@@ -137,7 +138,8 @@ void Item::setObject(QObject* object)
         return;
     } 
     impl->object = object;
-    impl->setup();
+    impl->fileId.reset();
+    propertiesUpdated();
     emit objectChanged();
 }
 
@@ -152,7 +154,8 @@ void Item::setSource(const QString& source)
         return;
     }
     impl->source = source;
-    impl->setup();
+    impl->fileId.reset();
+    propertiesUpdated();
     emit sourceChanged();
 }
 
@@ -163,7 +166,7 @@ QString Item::destination() const
 
 void Item::propertiesUpdated()
 {
-    if (!impl->fileId || impl->source.isEmpty()) {
+    if (impl->source.isEmpty()) {
         if (!impl->destination.isEmpty()) {
             impl->destination.clear();
             emit destinationChanged();
@@ -171,14 +174,17 @@ void Item::propertiesUpdated()
         return;
     }
 
-    Q_ASSERT_X(impl->object, qPrintable(impl->source), "object is null");
-    Q_ASSERT_X(impl->engine, qPrintable(impl->source), "engine is null");
-
-    if (!impl->engine || !impl->object) {
+    if (impl->fileId.expired() && !impl->setup()) {
+        impl->destination.clear();
+        emit destinationChanged();
         return;
     }
 
-    auto destination = impl->engine->getDestination(impl->fileId, impl->metaProps, impl->object);
+    auto ptr = impl->fileId.lock();
+
+    Q_ASSERT_X(ptr, qPrintable(impl->source), "failed to create ptr");
+
+    auto destination = impl->engine->getDestination(ptr, impl->metaProps, impl->object);
 
     if (impl->destination != destination) {
         impl->destination = destination;

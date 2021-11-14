@@ -5,10 +5,20 @@
 #include <QMetaProperty>
 #include <QDebug>
 #include <memory>
+#include <tuple>
 
 namespace
 {
 using Id = QString;
+
+class FileIdImpl : public svgt::Engine::FileId
+{
+    Id idStr;
+public:
+    FileIdImpl(const Id&);
+    const Id& id() const;
+};
+
 class Blueprint
 {
     QVector<QByteArray> chunks;
@@ -25,14 +35,14 @@ class Generator
 {
     QMap<Id, Blueprint> blueprints;
     QMap<QString, QByteArray> cache;
-    QMap<QString, Id> fileNames2Id;
+    QMap<QString, std::tuple<Id, std::shared_ptr<FileIdImpl>>> fileNames2Id;
 public:
     Generator() = default;
-
     const QByteArray& getData(const QString&);
-    Id fileNameId(const QString&);
+    const std::shared_ptr<FileIdImpl>& fileNameId(const QString&);
     QVector<QString> requiredProps(const Id&);
     QString getFilename(const Id&, const QVector<QMetaProperty>&, const QObject*);
+    void clearCache();
 }; // class Generator
 
 class FileEngine : public QAbstractFileEngine
@@ -54,15 +64,15 @@ public:
     QAbstractFileEngine* create(const QString& name) const;
 }; // class FileHandler
 
-class FileIdImpl : public svgt::Engine::FileId
-{
-    QString idStr;
-public:
-    FileIdImpl(const QString&);
-    const QString& id() const;
-};
-
 } // namespace
+
+struct svgt::Engine::Impl
+{
+    Generator generator;
+    FileHandler handler;
+
+    Impl();
+};
 
 FileEngine::FileEngine(const QByteArray& data)
     : QAbstractFileEngine()
@@ -74,14 +84,6 @@ FileEngine::FileEngine(const QByteArray& data)
         std::abort();
     }
 }
-
-struct svgt::Engine::Impl
-{
-    Generator generator;
-    FileHandler handler;
-
-    Impl();
-};
 
 bool FileEngine::open(QIODevice::OpenMode)
 {
@@ -129,13 +131,13 @@ QAbstractFileEngine* FileHandler::create(const QString& name) const
     return new FileEngine(data);
 }
 
-FileIdImpl::FileIdImpl(const QString& idStr)
+FileIdImpl::FileIdImpl(const Id& idStr)
     : idStr(idStr)
 {
     Q_ASSERT(!idStr.isEmpty());
 }
 
-const QString& FileIdImpl::id() const
+const Id& FileIdImpl::id() const
 {
     return idStr;
 }
@@ -167,18 +169,26 @@ QVector<QString> Generator::requiredProps(const Id& id)
     return it->requiredProps();
 }
 
-QString Generator::fileNameId(const QString& fileName)
+const std::shared_ptr<FileIdImpl>& Generator::fileNameId(const QString& fileName)
 {
     auto it = fileNames2Id.constFind(fileName);
     if (it != fileNames2Id.constEnd()) {
-        return *it;
+        return std::get<1>(*it);
     }
     auto id = QString::number(fileNames2Id.size(), 16);
-    fileNames2Id.insert(fileName, id);
+    auto ptr = std::make_shared<FileIdImpl>(id);
+    auto ptrIt = fileNames2Id.insert(fileName, {id, ptr});
 
     blueprints.insert(id, Blueprint(fileName));
 
-    return id;
+    return std::get<1>(*ptrIt);
+}
+
+void Generator::clearCache()
+{
+    cache.clear();
+    blueprints.clear();
+    fileNames2Id.clear();
 }
 
 QByteArray Blueprint::construct(const QVector<QMetaProperty>& props, const QObject* obj) const
@@ -309,24 +319,28 @@ svgt::Engine::Engine(QObject* parent)
 
 svgt::Engine::~Engine() = default;
 
+void svgt::Engine::clearCache()
+{
+    impl->generator.clearCache();
+}
+
 svgt::Engine::FileIdPtr svgt::Engine::getFileId(const QString& fileName)
 {
-    
     if (fileName.isEmpty()) {
         return nullptr;
     }
 
-    auto id = impl->generator.fileNameId(fileName);
+    auto idPtr = impl->generator.fileNameId(fileName);
 
-    Q_ASSERT_X(!id.isEmpty(), qPrintable(fileName), "failed to get file id");
+    Q_ASSERT_X(idPtr, qPrintable(fileName), "failed to get file id");
 
-    if (id.isEmpty()) {
+    if (!idPtr) {
         return nullptr;
     }
 
-    qDebug() << fileName << "->" << id;
+    qDebug() << fileName << "->" << idPtr->id();
 
-    return std::make_shared<FileIdImpl>(id);
+    return idPtr;
 }
 
 QVector<QString> svgt::Engine::getRequiredProperties(const svgt::Engine::FileIdPtr& id)

@@ -14,9 +14,12 @@ class Engine : public QObject
 public:
     struct FileId {virtual ~FileId() {}};
     using FileIdPtr = std::shared_ptr<FileId>;
+    using FileIdWPtr = std::weak_ptr<FileId>;
     
     Engine(QObject* parent = nullptr);
     ~Engine();
+
+    Q_INVOKABLE void clearCache();
 
     FileIdPtr getFileId(const QString&);
 
