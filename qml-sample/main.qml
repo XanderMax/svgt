@@ -5,7 +5,7 @@ Item {
     width: 1000
     height: 800
 
-    SvgtItem {
+    SvgtImage {
         id: _sv
         property color rightEye: "white"
         property color leftEye: "green"

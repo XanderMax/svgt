@@ -163,8 +163,6 @@ QString Item::destination() const
 
 void Item::propertiesUpdated()
 {
-    qDebug() << Q_FUNC_INFO;
-
     if (!impl->fileId || impl->source.isEmpty()) {
         if (!impl->destination.isEmpty()) {
             impl->destination.clear();
@@ -186,6 +184,4 @@ void Item::propertiesUpdated()
         impl->destination = destination;
         emit destinationChanged();
     }
-
-    qDebug() << impl->destination;
 }

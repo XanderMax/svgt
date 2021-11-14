@@ -176,11 +176,7 @@ QString Generator::fileNameId(const QString& fileName)
     auto id = QString::number(fileNames2Id.size(), 16);
     fileNames2Id.insert(fileName, id);
 
-    auto blueprintId = blueprints.constFind(id);
-
-    if (blueprintId == blueprints.constEnd()) {
-        blueprints.insert(id, Blueprint(fileName));
-    }
+    blueprints.insert(id, Blueprint(fileName));
 
     return id;
 }
