@@ -12,12 +12,12 @@ using Id = QString;
 class Blueprint
 {
     QVector<QByteArray> chunks;
-    QVector<QString> properties;
+    QVector<QByteArray> properties;
     void parse(const QString&);
 public:
     Blueprint(const QString&);
 
-    const QVector<QString>& requiredProps() const;
+    const QVector<QByteArray>& requiredProps() const;
     QByteArray construct(const QVector<QMetaProperty>&, const QObject*) const;
 }; // class Blueprint
 
@@ -31,7 +31,7 @@ public:
 
     const QByteArray& getData(const QString&);
     Id fileNameId(const QString&);
-    QVector<QString> requiredProps(const Id&);
+    QVector<QByteArray> requiredProps(const Id&);
     QString getFilename(const Id&, const QVector<QMetaProperty>&, const QObject*);
 }; // class Generator
 
@@ -154,14 +154,14 @@ const QByteArray& Generator::getData(const QString& fileName)
     }
     return cache[fileName];
 }
-QVector<QString> Generator::requiredProps(const Id& id)
+QVector<QByteArray> Generator::requiredProps(const Id& id)
 {
     auto it = blueprints.constFind(id);
 
     Q_ASSERT_X(it != blueprints.constEnd(), qPrintable(id), "no such id");
 
     if (it == blueprints.constEnd()) {
-        return QVector<QString>();
+        return QVector<QByteArray>();
     }
 
     return it->requiredProps();
@@ -236,7 +236,7 @@ void Blueprint::parse(const QString& fileName)
             openBrace = i;
         }
         if (data[i] == '}' && data[i + 1] == '}' && openBrace >= 0) {
-            QString property = data.mid(openBrace + 2, i - openBrace -2);
+            QByteArray property = data.mid(openBrace + 2, i - openBrace -2);
             auto dataChunk = data.mid(beg, openBrace - beg);
             chunks.append(std::move(dataChunk));
             chunks.append(QByteArray());
@@ -259,7 +259,7 @@ Blueprint::Blueprint(const QString& fileName)
     }
 }
 
-const QVector<QString>& Blueprint::requiredProps() const
+const QVector<QByteArray>& Blueprint::requiredProps() const
 {
     return properties;
 }
@@ -329,11 +329,11 @@ svgt::Engine::FileIdPtr svgt::Engine::getFileId(const QString& fileName)
     return std::make_shared<FileIdImpl>(id);
 }
 
-QVector<QString> svgt::Engine::getRequiredProperties(const svgt::Engine::FileIdPtr& id)
+QVector<QByteArray> svgt::Engine::getRequiredProperties(const svgt::Engine::FileIdPtr& id)
 {
     auto fileId = std::static_pointer_cast<FileIdImpl>(id);
     if (!fileId) {
-        return QVector<QString>();
+        return QVector<QByteArray>();
     }
 
     return impl->generator.requiredProps(fileId->id());

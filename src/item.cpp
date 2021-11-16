@@ -76,7 +76,7 @@ void Item::Impl::setup()
     QVector<QMetaProperty> props;
     std::vector<Connection> conns;
     for (const auto& name : qAsConst(requiredProps)) {
-        int pIdx = mo->indexOfProperty(qPrintable(name));
+        int pIdx = mo->indexOfProperty(name.constData());
 
         if (pIdx <= 0) {
             qCritical() << "No property in object:" << name << "source:" << source;

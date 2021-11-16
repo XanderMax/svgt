@@ -20,7 +20,7 @@ public:
 
     FileIdPtr getFileId(const QString&);
 
-    QVector<QString> getRequiredProperties(const FileIdPtr&);
+    QVector<QByteArray> getRequiredProperties(const FileIdPtr&);
 
     QString getDestination(const FileIdPtr&, const QVector<QMetaProperty>&, const QObject*);
 }; // Engine
